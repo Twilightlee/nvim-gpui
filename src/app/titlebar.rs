@@ -21,6 +21,7 @@ use gpui::{
 };
 #[cfg(target_os = "linux")]
 use gpui::{CursorStyle, Decorations, Div, ResizeEdge};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Clone)]
 pub(crate) struct RimeTitlebarState {
@@ -30,18 +31,30 @@ pub(crate) struct RimeTitlebarState {
     pub menu_message: Option<String>,
 }
 
+// Window chrome is fixed when a window opens, so the setting is read once at
+// startup and a change takes effect after restart.
+static TITLEBAR_HIDDEN: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn set_themed_titlebar_enabled(enabled: bool) {
+    TITLEBAR_HIDDEN.store(!enabled, Ordering::Relaxed);
+}
+
 pub(crate) fn themed_titlebar_enabled() -> bool {
     cfg!(any(
         target_os = "linux",
         target_os = "macos",
         target_os = "windows"
-    ))
+    )) && !TITLEBAR_HIDDEN.load(Ordering::Relaxed)
 }
 
 pub(crate) fn themed_window_decorations() -> Option<WindowDecorations> {
     #[cfg(target_os = "linux")]
     {
-        Some(WindowDecorations::Client)
+        Some(if themed_titlebar_enabled() {
+            WindowDecorations::Client
+        } else {
+            WindowDecorations::Server
+        })
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -58,7 +71,8 @@ pub(crate) fn themed_resize_handles(window: &Window) -> Option<impl IntoElement>
 pub(crate) fn themed_titlebar_options(title: &'static str) -> TitlebarOptions {
     TitlebarOptions {
         title: Some(title.into()),
-        appears_transparent: cfg!(any(target_os = "macos", target_os = "windows")),
+        appears_transparent: cfg!(any(target_os = "macos", target_os = "windows"))
+            && themed_titlebar_enabled(),
         ..Default::default()
     }
 }

@@ -654,6 +654,34 @@ impl Render for SettingsWindow {
             cx.listener(|this, _, _, cx| this.toggle_combo(SettingsCombo::StartupMaximized, cx)),
         );
 
+        let titlebar_options = div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .child(combo_option(
+                "settings-titlebar-on",
+                "On",
+                current.show_titlebar,
+                cx.listener(|this, _, _, cx| {
+                    this.apply_setting(|settings| settings.show_titlebar = true, cx);
+                }),
+            ))
+            .child(combo_option(
+                "settings-titlebar-off",
+                "Off",
+                !current.show_titlebar,
+                cx.listener(|this, _, _, cx| {
+                    this.apply_setting(|settings| settings.show_titlebar = false, cx);
+                }),
+            ));
+        let titlebar_options = combo_box(
+            "settings-titlebar-combo",
+            if current.show_titlebar { "On" } else { "Off" },
+            self.open_combo == Some(SettingsCombo::ShowTitlebar),
+            titlebar_options,
+            cx.listener(|this, _, _, cx| this.toggle_combo(SettingsCombo::ShowTitlebar, cx)),
+        );
+
         let mut update_check_options = div().w_full().flex().flex_col();
         update_check_options = update_check_options.child(combo_option(
             "settings-update-checks-on",
@@ -891,6 +919,11 @@ impl Render for SettingsWindow {
             startup_options,
         ));
         let application_behavior = application_behavior
+            .child(row(
+                "Title bar",
+                "Show the nvim-gpui title bar with the Settings and About buttons. Turning it off uses the system title bar. Takes effect after restart.",
+                titlebar_options,
+            ))
                 .child(row(
                 "Automatic update checks",
                 "Check for new stable nvim-gpui releases once per day in the background.",

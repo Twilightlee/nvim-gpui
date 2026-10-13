@@ -20,8 +20,8 @@ pub(crate) use state::{AppState, Session};
 #[cfg(target_os = "linux")]
 pub(crate) use titlebar::themed_resize_handles;
 pub(crate) use titlebar::{
-    themed_titlebar, themed_titlebar_enabled, themed_titlebar_options, themed_window_decorations,
-    RimeTitlebarState,
+    set_themed_titlebar_enabled, themed_titlebar, themed_titlebar_enabled, themed_titlebar_options,
+    themed_window_decorations, RimeTitlebarState,
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
