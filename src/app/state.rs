@@ -53,6 +53,7 @@ pub(crate) struct Session {
     pub(crate) reconnect_task: Option<Task<()>>,
     pub(crate) reconnect_attempt: u32,
     pub(crate) clipboard_task: Option<Task<()>>,
+    pub(crate) gui_command_task: Option<Task<()>>,
 }
 
 impl Default for Session {
@@ -71,6 +72,7 @@ impl Default for Session {
             reconnect_task: None,
             reconnect_attempt: 0,
             clipboard_task: None,
+            gui_command_task: None,
         }
     }
 }

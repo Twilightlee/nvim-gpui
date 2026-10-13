@@ -28,6 +28,13 @@ end
 return modified
 "#;
 const UNNAMED_BUFFER_LABEL: &str = "[No Name]";
+const OPEN_SETTINGS_METHOD: &str = "nvim_gpui_open_settings";
+const GUI_COMMANDS_LUA: &str = r#"
+local channel = ...
+vim.api.nvim_create_user_command("GpvimSettings", function()
+  vim.rpcrequest(channel, "nvim_gpui_open_settings")
+end, { desc = "Open the nvim-gpui settings window" })
+"#;
 
 impl NvimGpui {
     #[allow(clippy::too_many_arguments)]
@@ -197,6 +204,52 @@ impl NvimGpui {
                 // empty, the next recv().await already yields naturally.
                 if has_queued_events {
                     futures_lite::future::yield_now().await;
+                }
+            }
+        }));
+    }
+
+    /// Define `:GpvimSettings` in Neovim. The command sends an RPC request
+    /// back to this GUI, which opens the settings window.
+    pub(crate) fn install_gui_commands(&mut self, cx: &mut Context<Self>) {
+        let Some(nvim) = self.app.session.nvim.as_ref() else {
+            return;
+        };
+        let (requests, request_queue) = async_channel::bounded::<()>(1);
+        if let Err(error) = nvim.register_request_handler(OPEN_SETTINGS_METHOD, move |_| {
+            // A full queue means a window open is already pending.
+            let _ = requests.try_send(());
+            Ok(rmpv::Value::Nil)
+        }) {
+            log::error!(target: "nvim_gpui::app", "failed to register GUI commands: {error}");
+            return;
+        }
+        let channel_id = nvim
+            .protocol()
+            .map(|protocol| protocol.channel_id)
+            .unwrap_or_default();
+        if let Err(error) = nvim.request(
+            "nvim_exec_lua",
+            rmpv::Value::Array(vec![
+                rmpv::Value::from(GUI_COMMANDS_LUA),
+                rmpv::Value::Array(vec![rmpv::Value::from(channel_id)]),
+            ]),
+        ) {
+            log::error!(target: "nvim_gpui::app", "failed to define GUI commands: {error}");
+            return;
+        }
+        self.app.session.gui_command_task = Some(cx.spawn(async move |weak, cx| {
+            while request_queue.recv().await.is_ok() {
+                // Do not use `weak.update` here: the settings window reads this
+                // entity while it opens, and GPUI panics on a double lease.
+                let Some(source) = weak.upgrade() else {
+                    break;
+                };
+                if cx
+                    .update(|cx| crate::gui::open_settings_window(source, cx))
+                    .is_err()
+                {
+                    break;
                 }
             }
         }));
@@ -505,6 +558,7 @@ impl NvimGpui {
         self.editor.input.scroll_remainder = point(0.0, 0.0);
         self.editor.cursor.cursor_blink_started_at = Instant::now();
         self.app.session.clipboard_task = None;
+        self.app.session.gui_command_task = None;
         self.window.window_title = DEFAULT_WINDOW_TITLE.to_owned();
         self.window.window_icon = "nvim-gpui".to_owned();
     }
