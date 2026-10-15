@@ -12,6 +12,7 @@ pub(crate) struct AppState {
     pub(crate) session: Session,
     pub(crate) settings: settings::Settings,
     pub(crate) last_resize: Option<(u32, u32)>,
+    pub(crate) pending_window_size: Option<(u32, u32)>,
     pub(crate) settings_save_error: Option<String>,
     pub(crate) cli_install_error: Option<String>,
     pub(crate) update_status: update_check::Status,

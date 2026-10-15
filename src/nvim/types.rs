@@ -99,6 +99,10 @@ pub enum NvimEvent {
         width: u32,
         height: u32,
     },
+    WindowResizeRequested {
+        width: u32,
+        height: u32,
+    },
     GridResized {
         grid: u64,
         width: u32,

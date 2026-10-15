@@ -134,12 +134,12 @@ impl NvimGpui {
         let cell_width = gui_font.cell_width(window);
         let line_height = gui_font.line_height(window, self.editor.protocol.linespace);
         let viewport = window.viewport_size();
-        let available_height = f32::from(viewport.height)
-            - if themed_titlebar_enabled() {
-                THEMED_TITLEBAR_HEIGHT
-            } else {
-                0.0
-            };
+        let titlebar_height = if themed_titlebar_enabled() {
+            THEMED_TITLEBAR_HEIGHT
+        } else {
+            0.0
+        };
+        let available_height = f32::from(viewport.height) - titlebar_height;
         if f32::from(viewport.width) <= 0.0 || available_height <= 0.0 {
             return;
         }
@@ -163,6 +163,27 @@ impl NvimGpui {
         if self.app.session.startup_connection.is_some() {
             self.start_initial_nvim(size, cx);
             return;
+        }
+
+        if self.app.pending_window_size.is_some() && self.editor.protocol.has_pending_redraw() {
+            return;
+        }
+        if let Some((columns, lines)) = self.app.pending_window_size.take() {
+            if (columns, lines) != size && !window.is_fullscreen() && !window.is_maximized() {
+                self.app.last_resize = Some(size);
+                window.resize(gpui::size(
+                    px((columns as f32 * f32::from(cell_width)).ceil()),
+                    px((lines as f32 * f32::from(line_height) + titlebar_height).ceil()),
+                ));
+                cx.on_next_frame(window, move |this, window, cx| {
+                    if window.viewport_size() == viewport {
+                        this.app.last_resize = None;
+                        this.sync_nvim_size(window, cx);
+                    }
+                });
+                return;
+            }
+            self.app.last_resize = None;
         }
 
         if !self.editor.protocol.startup.nvim_grid_ready {

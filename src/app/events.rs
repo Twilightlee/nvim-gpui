@@ -79,6 +79,9 @@ impl NvimGpui {
             ProtocolOutcome::PendingChanged => {
                 self.editor.input.ime_coordinates_dirty = true;
             }
+            ProtocolOutcome::WindowResizeRequested { width, height } => {
+                self.app.pending_window_size = Some((width, height));
+            }
             ProtocolOutcome::Flushed(redraw) => {
                 self.apply_redraw_commit(redraw, previous_cursor);
                 self.editor.invalidate_presentation_snapshot();
@@ -197,6 +200,27 @@ impl NvimGpui {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grid_resizes_do_not_replace_an_explicit_window_size_request() {
+        let mut app = NvimGpui::default();
+        app.apply_nvim_event_for_test(NvimEvent::WindowResizeRequested {
+            width: 200,
+            height: 60,
+        });
+        assert!(!app.editor.protocol.has_pending_redraw());
+
+        for grid in [1, 2] {
+            app.apply_nvim_event_for_test(NvimEvent::GridResized {
+                grid,
+                width: 80,
+                height: 24,
+            });
+            app.apply_nvim_event_for_test(NvimEvent::Flush);
+        }
+
+        assert_eq!(app.app.pending_window_size, Some((200, 60)));
+    }
 
     #[test]
     fn grid_resize_is_not_visible_before_flush() {

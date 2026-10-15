@@ -12,6 +12,42 @@ use super::{
 };
 
 const STARTUP_READY_METHOD: &str = "nvim_gpui_startup_ready";
+const WINDOW_SIZE_METHOD: &str = "nvim_gpui_window_size";
+
+const WINDOW_SIZE_LUA: &str = r#"
+local channel = ...
+local group = vim.api.nvim_create_augroup("nvim_gpui_window_size_" .. channel, { clear = true })
+local pending
+local function resize()
+    if not pending then
+        vim.schedule(function()
+            local size = pending
+            pending = nil
+            pcall(vim.rpcnotify, channel, "nvim_gpui_window_size", unpack(size))
+        end)
+    end
+    pending = { vim.o.columns, vim.o.lines }
+end
+vim.api.nvim_create_autocmd("OptionSet", {
+    group = group,
+    pattern = { "columns", "lines" },
+    callback = resize,
+})
+vim.api.nvim_create_autocmd({ "VimEnter", "UIEnter" }, {
+    group = group,
+    callback = function(event)
+        if event.event == "VimEnter" or vim.v.event.chan == channel then
+            vim.schedule(resize)
+        end
+    end,
+})
+vim.api.nvim_create_autocmd("UILeave", {
+    group = group,
+    callback = function()
+        if vim.v.event.chan == channel then vim.api.nvim_del_augroup_by_id(group) end
+    end,
+})
+"#;
 
 // Schedule after VimEnter so all startup autocommands have returned before
 // the GUI begins opening files received from the operating system.
@@ -97,22 +133,25 @@ pub(super) fn run_session(
         .keys()
         .cloned()
         .collect::<Vec<_>>();
-    if embedded {
-        request(
-            &writer,
-            &mut reader,
-            request_id,
-            "nvim_exec_lua",
-            Value::Array(vec![
-                Value::from(STARTUP_READY_LUA),
-                Value::Array(vec![Value::from(protocol.channel_id)]),
-            ]),
-            events,
-            incoming_requests,
-            &protocol_adapter,
-        )?;
-        request_id += 1;
-    }
+    let startup_lua = if embedded {
+        format!("{STARTUP_READY_LUA}{WINDOW_SIZE_LUA}")
+    } else {
+        WINDOW_SIZE_LUA.to_owned()
+    };
+    request(
+        &writer,
+        &mut reader,
+        request_id,
+        "nvim_exec_lua",
+        Value::Array(vec![
+            Value::from(startup_lua),
+            Value::Array(vec![Value::from(protocol.channel_id)]),
+        ]),
+        events,
+        incoming_requests,
+        &protocol_adapter,
+    )?;
+    request_id += 1;
 
     request(
         &writer,
@@ -163,8 +202,7 @@ pub(super) fn run_session(
     let _ = rpc_ready.send_blocking(());
     send_event(events, NvimEvent::UiAttached { width, height })?;
     if !embedded {
-        // Remote sessions do not accept local platform files and must not
-        // install startup autocommands into another Neovim instance.
+        // Remote sessions do not accept local platform files.
         send_event(events, NvimEvent::StartupReady)?;
     }
 
@@ -483,6 +521,18 @@ fn handle_notification_with_protocol(
 ) -> Result<(), String> {
     if method == STARTUP_READY_METHOD {
         return send_event(events, NvimEvent::StartupReady);
+    }
+    if method == WINDOW_SIZE_METHOD {
+        let args = params
+            .as_array()
+            .filter(|args| args.len() == 2)
+            .ok_or_else(|| "window size notification expects two arguments".to_owned())?;
+        let width = parse_u32_value(&args[0], "window width")?;
+        let height = parse_u32_value(&args[1], "window height")?;
+        if width == 0 || height == 0 {
+            return Err("window size must be positive".to_owned());
+        }
+        return send_event(events, NvimEvent::WindowResizeRequested { width, height });
     }
     if method != "redraw" {
         return Ok(());

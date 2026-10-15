@@ -160,6 +160,7 @@ impl NvimGpui {
                         event,
                         NvimEvent::ApiReady { .. }
                             | NvimEvent::UiAttached { .. }
+                            | NvimEvent::WindowResizeRequested { .. }
                             | NvimEvent::Flush
                             | NvimEvent::WinExtmark { .. }
                             | NvimEvent::Error(_)
@@ -520,6 +521,7 @@ impl NvimGpui {
             Some((DEFAULT_GRID_WIDTH, DEFAULT_GRID_HEIGHT));
         self.editor.protocol.startup.nvim_grid_ready = false;
         self.app.last_resize = None;
+        self.app.pending_window_size = None;
         self.editor.presentation.viewport_animations.clear();
         self.editor.presentation.scroll_animation_suppressed.clear();
         self.editor.presentation.grid_paint_caches.clear();
