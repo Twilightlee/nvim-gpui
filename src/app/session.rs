@@ -758,15 +758,10 @@ fn collect_event_batch(
     let mut batch = Vec::with_capacity(64);
     batch.push(first);
 
-    while batch.len() < MAX_EVENTS_PER_UI_UPDATE {
+    while batch.len() < MAX_EVENTS_PER_UI_UPDATE && !matches!(batch.last(), Some(NvimEvent::Flush))
+    {
         match events.try_recv() {
-            Ok(event) => {
-                let is_flush = matches!(event, NvimEvent::Flush);
-                batch.push(event);
-                if is_flush {
-                    break;
-                }
-            }
+            Ok(event) => batch.push(event),
             Err(async_channel::TryRecvError::Empty) | Err(async_channel::TryRecvError::Closed) => {
                 break
             }
@@ -795,6 +790,18 @@ mod tests {
             receiver.try_recv(),
             Ok(NvimEvent::GridClear { grid: 1 })
         ));
+    }
+
+    #[test]
+    fn redraw_batch_stops_when_first_event_is_flush() {
+        let (sender, receiver) = async_channel::unbounded();
+        sender.try_send(NvimEvent::GridClear { grid: 1 }).unwrap();
+        sender.try_send(NvimEvent::Flush).unwrap();
+
+        let batch = collect_event_batch(NvimEvent::Flush, &receiver);
+
+        assert_eq!(batch, vec![NvimEvent::Flush]);
+        assert_eq!(receiver.len(), 2);
     }
 
     #[test]
