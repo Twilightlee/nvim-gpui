@@ -62,6 +62,175 @@ fn startup_ready_notification_is_distinct_from_redraw() {
 }
 
 #[test]
+fn window_size_notification_validates_dimensions() {
+    let (sender, receiver) = unbounded();
+    handle_notification(
+        "nvim_gpui_window_size",
+        &Value::Array(vec![Value::from(200), Value::from(60)]),
+        &sender,
+    )
+    .unwrap();
+    assert_eq!(
+        receiver.try_recv().unwrap(),
+        NvimEvent::WindowResizeRequested {
+            width: 200,
+            height: 60
+        }
+    );
+    for args in [
+        vec![],
+        vec![Value::from(200)],
+        vec![Value::from(0), Value::from(60)],
+        vec![Value::from(200), Value::from(-1)],
+        vec![Value::from(u64::MAX), Value::from(60)],
+        vec![Value::from("200"), Value::from(60)],
+    ] {
+        assert!(
+            handle_notification("nvim_gpui_window_size", &Value::Array(args), &sender).is_err()
+        );
+    }
+    assert!(receiver.is_empty());
+}
+
+#[test]
+fn window_size_options_are_coalesced_without_echoing_gui_resizes() {
+    let nvim = spawn_test_nvim();
+    wait_for_event(&nvim, NvimEvent::StartupReady);
+    drain_window_size_requests(&nvim);
+
+    let options = nvim
+        .request(
+            "nvim_command",
+            Value::Array(vec![Value::from("set columns=200 lines=60")]),
+        )
+        .unwrap();
+    let resize = nvim
+        .request(
+            "nvim_ui_try_resize",
+            Value::Array(vec![Value::from(90), Value::from(30)]),
+        )
+        .unwrap();
+    options.recv_blocking().unwrap().unwrap();
+    resize.recv_blocking().unwrap().unwrap();
+    assert_eq!(drain_window_size_requests(&nvim), vec![(200, 60)]);
+
+    for (width, height) in [(200, 60), (200, 60), (120, 40), (1, 1)] {
+        request(
+            &nvim,
+            "nvim_ui_try_resize",
+            vec![Value::from(width), Value::from(height)],
+        );
+    }
+    assert!(drain_window_size_requests(&nvim).is_empty());
+}
+
+#[test]
+fn window_size_respects_startup_options_and_autocommands() {
+    for command in [
+        "set columns=200 lines=60",
+        "autocmd VimEnter * set columns=200 lines=60",
+        "autocmd UIEnter * set columns=200 lines=60",
+    ] {
+        let nvim = NvimProcess::spawn(
+            80,
+            24,
+            ["-u", "NONE", "-i", "NONE", "-n", "--cmd", command].map(OsString::from),
+        )
+        .unwrap();
+        wait_for_event(
+            &nvim,
+            NvimEvent::WindowResizeRequested {
+                width: 200,
+                height: 60,
+            },
+        );
+    }
+}
+
+#[test]
+fn remote_window_size_follows_uienter_and_cleans_up_on_detach() {
+    let server = spawn_test_nvim();
+    wait_for_event(&server, NvimEvent::StartupReady);
+    request(&server, "nvim_ui_detach", vec![]);
+    let address = request(
+        &server,
+        "nvim_exec_lua",
+        vec![
+            Value::from(
+                "vim.api.nvim_create_autocmd('UIEnter', {callback = function() \
+                   vim.o.columns = 200; vim.o.lines = 60 \
+                 end}); \
+                 return vim.fn.serverstart('127.0.0.1:0')",
+            ),
+            Value::Array(vec![]),
+        ],
+    );
+    let remote = NvimProcess::connect(80, 24, address.as_str().unwrap()).unwrap();
+    wait_for_event(
+        &remote,
+        NvimEvent::WindowResizeRequested {
+            width: 200,
+            height: 60,
+        },
+    );
+    request(&remote, "nvim_ui_detach", vec![]);
+    let remaining = request(
+        &remote,
+        "nvim_exec_lua",
+        vec![
+            Value::from("return vim.fn.exists('#nvim_gpui_window_size_' .. (...))"),
+            Value::Array(vec![Value::from(remote.protocol().unwrap().channel_id)]),
+        ],
+    );
+    assert_eq!(remaining, Value::from(0));
+}
+
+fn wait_for_event(nvim: &NvimProcess, expected: NvimEvent) {
+    let events = nvim.events();
+    let deadline = Instant::now() + STARTUP_READY_TEST_TIMEOUT;
+    loop {
+        assert!(Instant::now() < deadline, "missing event: {expected:?}");
+        match events.try_recv() {
+            Ok(event) if event == expected => return,
+            Ok(NvimEvent::Error(error)) => panic!("Neovim failed: {error}"),
+            Ok(_) => {}
+            Err(_) => thread::sleep(Duration::from_millis(5)),
+        }
+    }
+}
+
+fn drain_window_size_requests(nvim: &NvimProcess) -> Vec<(u32, u32)> {
+    request(
+        nvim,
+        "nvim_exec_lua",
+        vec![
+            Value::from(
+                "local done = false; \
+                 vim.schedule(function() vim.schedule(function() done = true end) end); \
+                 assert(vim.wait(1000, function() return done end))",
+            ),
+            Value::Array(vec![]),
+        ],
+    );
+    let events = nvim.events();
+    std::iter::from_fn(|| events.try_recv().ok())
+        .filter_map(|event| match event {
+            NvimEvent::WindowResizeRequested { width, height } => Some((width, height)),
+            NvimEvent::Error(error) => panic!("Neovim failed: {error}"),
+            _ => None,
+        })
+        .collect()
+}
+
+fn request(nvim: &NvimProcess, method: &str, params: Vec<Value>) -> Value {
+    nvim.request(method, Value::Array(params))
+        .unwrap()
+        .recv_blocking()
+        .unwrap()
+        .unwrap()
+}
+
+#[test]
 fn embedded_startup_ready_arrives_after_vimenter_autocommands() {
     let nvim = NvimProcess::spawn(
         80,

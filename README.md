@@ -239,6 +239,29 @@ macOS AppBundle or Windows bundle. Development builds also search the repository
 `.cache/rime-runtime` staging directory; a different development runtime can
 be selected with `NVIM_GPUI_RIME_RUNTIME=/path/to/rime-runtime`.
 
+## Window size
+
+Use Neovim's `columns` and `lines` options to resize the GUI in character cells:
+
+```vim
+:set columns=200 lines=60
+```
+
+For a startup size that also works when attaching to a remote Neovim instance,
+add this to your Neovim configuration:
+
+```lua
+vim.api.nvim_create_autocmd("UIEnter", {
+  callback = function()
+    vim.o.columns = 200
+    vim.o.lines = 60
+  end,
+})
+```
+
+The window uses the current font and line spacing, within the screen's limits.
+Maximized and fullscreen windows keep their size.
+
 ## Font configuration
 
 Font selection is available in Settings → `Font and image`. nvim-gpui uses the

@@ -318,6 +318,10 @@ pub(crate) enum ProtocolOutcome {
         height: u32,
         redraw: RedrawCommit,
     },
+    WindowResizeRequested {
+        width: u32,
+        height: u32,
+    },
     PendingChanged,
     Flushed(RedrawCommit),
     Error(String),
@@ -385,7 +389,6 @@ impl ProtocolState {
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn has_pending_redraw(&self) -> bool {
         self.pending_redraw.is_some()
     }
@@ -410,6 +413,7 @@ impl ProtocolState {
             NvimEvent::ApiReady { .. }
                 | NvimEvent::StartupReady
                 | NvimEvent::UiAttached { .. }
+                | NvimEvent::WindowResizeRequested { .. }
                 | NvimEvent::Flush
                 | NvimEvent::Error(_)
                 | NvimEvent::Disconnected { .. }
@@ -431,6 +435,9 @@ impl ProtocolState {
                     height,
                     redraw,
                 }
+            }
+            NvimEvent::WindowResizeRequested { width, height } => {
+                ProtocolOutcome::WindowResizeRequested { width, height }
             }
             NvimEvent::GridResized {
                 grid,
