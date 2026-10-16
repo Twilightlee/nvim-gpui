@@ -135,11 +135,7 @@ impl NvimGpui {
         let line_height = gui_font.line_height(window, self.editor.protocol.linespace);
         let viewport = window.viewport_size();
         let available_height = f32::from(viewport.height)
-            - if cfg!(any(
-                target_os = "linux",
-                target_os = "macos",
-                target_os = "windows"
-            )) {
+            - if themed_titlebar_enabled() {
                 THEMED_TITLEBAR_HEIGHT
             } else {
                 0.0

@@ -22,6 +22,7 @@ impl NvimGpui {
         if event == NvimEvent::StartupReady {
             self.app.session.nvim_startup_ready = true;
             self.flush_pending_file_opens(cx);
+            self.install_gui_commands(cx);
             return;
         }
         if let Some(reason) = self.process_nvim_event(event) {

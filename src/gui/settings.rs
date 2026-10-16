@@ -54,6 +54,7 @@ enum SettingsCombo {
     CursorAnimation,
     ScrollingAnimation,
     StartupMaximized,
+    ShowTitlebar,
     UpdateChecks,
     LogLevel,
     ImageCacheSize,

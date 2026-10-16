@@ -397,6 +397,7 @@ pub struct Settings {
     pub cursor_animation: bool,
     pub scrolling_animation: bool,
     pub startup_maximized: bool,
+    pub show_titlebar: bool,
     pub quit_on_window_close: bool,
     pub allow_multiple_instances: bool,
     pub log_level: LogLevel,
@@ -423,6 +424,7 @@ impl Default for Settings {
             cursor_animation: true,
             scrolling_animation: true,
             startup_maximized: false,
+            show_titlebar: true,
             quit_on_window_close: true,
             allow_multiple_instances: true,
             log_level: LogLevel::default(),
@@ -465,7 +467,7 @@ impl Settings {
 
     fn to_file_contents(&self) -> String {
         format!(
-            "font_size={}\nguifont={}\nguifontwide={}\nnerd_font={}\nfallback_mode={}\ncursor_animation={}\nscrolling_animation={}\nstartup_maximized={}\nquit_on_window_close={}\nallow_multiple_instances={}\nlog_level={}\nimage_cache_size_mb={}\npaste_shortcut={}\nime_backend={}\nrime_candidate_layout={}\nrime_toggle_shortcut={}\nrime_library_dir={}\nrime_library_auto_detect={}\nrime_data_dir={}\ncheck_for_updates={}\nlast_update_check={}\n",
+            "font_size={}\nguifont={}\nguifontwide={}\nnerd_font={}\nfallback_mode={}\ncursor_animation={}\nscrolling_animation={}\nstartup_maximized={}\nshow_titlebar={}\nquit_on_window_close={}\nallow_multiple_instances={}\nlog_level={}\nimage_cache_size_mb={}\npaste_shortcut={}\nime_backend={}\nrime_candidate_layout={}\nrime_toggle_shortcut={}\nrime_library_dir={}\nrime_library_auto_detect={}\nrime_data_dir={}\ncheck_for_updates={}\nlast_update_check={}\n",
             self.font_size,
             self.guifont,
             self.guifontwide,
@@ -474,6 +476,7 @@ impl Settings {
             self.cursor_animation,
             self.scrolling_animation,
             self.startup_maximized,
+            self.show_titlebar,
             self.quit_on_window_close,
             self.allow_multiple_instances,
             self.log_level.key(),
@@ -530,6 +533,11 @@ fn parse_settings(contents: &str) -> Settings {
             "startup_maximized" => {
                 if let Ok(value) = value.trim().parse() {
                     settings.startup_maximized = value;
+                }
+            }
+            "show_titlebar" => {
+                if let Ok(value) = value.trim().parse() {
+                    settings.show_titlebar = value;
                 }
             }
             "quit_on_window_close" => {
@@ -651,6 +659,7 @@ mod tests {
         assert!(Settings::default().cursor_animation);
         assert!(Settings::default().scrolling_animation);
         assert!(!Settings::default().startup_maximized);
+        assert!(Settings::default().show_titlebar);
         assert!(Settings::default().quit_on_window_close);
         assert!(Settings::default().allow_multiple_instances);
         assert_eq!(Settings::default().log_level, LogLevel::Off);
@@ -683,7 +692,7 @@ mod tests {
     #[test]
     fn settings_parser_ignores_unknown_and_invalid_values() {
         let settings = parse_settings(
-            "font_size=18\nguifont=Iosevka Term\nguifontwide=PingFang SC\nnerd_font=symbols-mono\nfallback_mode=force\ncursor_animation=false\nscrolling_animation=false\nstartup_maximized=true\nquit_on_window_close=false\nallow_multiple_instances=false\nlog_level=debug\nimage_cache_size_mb=512\npaste_shortcut=ctrl-v\nime_backend=system\nrime_candidate_layout=horizontal\nrime_toggle_shortcut=ctrl-shift-space\nrime_library_dir=/tmp/librime\nrime_library_auto_detect=true\nrime_data_dir=/tmp/rime-data\ncheck_for_updates=false\nlast_update_check=123\nrime_user_data_dir=/tmp/rime-user\nrime_staging_data_dir=/tmp/rime-staging\nunknown=x\nfont_size=17\nimage_cache_size_mb=1\n",
+            "font_size=18\nguifont=Iosevka Term\nguifontwide=PingFang SC\nnerd_font=symbols-mono\nfallback_mode=force\ncursor_animation=false\nscrolling_animation=false\nstartup_maximized=true\nshow_titlebar=false\nquit_on_window_close=false\nallow_multiple_instances=false\nlog_level=debug\nimage_cache_size_mb=512\npaste_shortcut=ctrl-v\nime_backend=system\nrime_candidate_layout=horizontal\nrime_toggle_shortcut=ctrl-shift-space\nrime_library_dir=/tmp/librime\nrime_library_auto_detect=true\nrime_data_dir=/tmp/rime-data\ncheck_for_updates=false\nlast_update_check=123\nrime_user_data_dir=/tmp/rime-user\nrime_staging_data_dir=/tmp/rime-staging\nunknown=x\nfont_size=17\nimage_cache_size_mb=1\n",
         );
 
         assert_eq!(settings.font_size, 18);
@@ -694,6 +703,7 @@ mod tests {
         assert!(!settings.cursor_animation);
         assert!(!settings.scrolling_animation);
         assert!(settings.startup_maximized);
+        assert!(!settings.show_titlebar);
         assert!(!settings.quit_on_window_close);
         assert!(!settings.allow_multiple_instances);
         assert_eq!(settings.log_level, LogLevel::Debug);

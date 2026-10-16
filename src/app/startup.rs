@@ -54,6 +54,7 @@ pub(crate) fn run(
     logger: Option<flexi_logger::LoggerHandle>,
 ) -> bool {
     let startup_maximized = app_settings.startup_maximized;
+    crate::app::set_themed_titlebar_enabled(app_settings.show_titlebar);
     log::debug!(
         target: "nvim_gpui::startup",
         "loaded settings: nerd_font={}, fallback_mode={}, startup_maximized={}, quit_on_window_close={}, allow_multiple_instances={}, log_level={}, image_cache_size_mb={}",
