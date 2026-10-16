@@ -839,7 +839,7 @@ impl NvimGpui {
                 return;
             };
             for _ in 0..x_steps.unsigned_abs() {
-                let action = if x_steps > 0 { "right" } else { "left" };
+                let action = if x_steps > 0 { "left" } else { "right" };
                 if let Err(error) = nvim.send_mouse(
                     "wheel",
                     action,
