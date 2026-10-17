@@ -2,6 +2,34 @@
 
 All notable changes to nvim-gpui are documented here.
 
+## [0.8.1] - 2026-10-17
+
+### Added
+
+- The themed title bar can be disabled in Settings to use the system title bar.
+  `:GpvimSettings` opens Settings when the themed title bar is hidden.
+- Set the GUI window size through Neovim's `columns` and `lines` options,
+  including startup settings and remote `UIEnter` autocommands.
+
+### Improved
+
+- Horizontal wheel and Shift+wheel scrolling now move in the expected direction.
+
+### Fixed
+
+- Redraw batches stop at the first `flush`, keeping subsequent redraws separate.
+
+### Thanks
+
+- Thanks to Om Kashyap Avashia ([@omavashia2005](https://github.com/omavashia2005))
+  for the optional themed title bar and `:GpvimSettings`
+  (PR [#3](https://github.com/imkerberos/nvim-gpui/pull/3)).
+- Thanks to Kazuki Sakamoto ([@splhack](https://github.com/splhack)) for window
+  sizing, horizontal scrolling, and redraw batching (PRs
+  [#4](https://github.com/imkerberos/nvim-gpui/pull/4),
+  [#5](https://github.com/imkerberos/nvim-gpui/pull/5),
+  [#6](https://github.com/imkerberos/nvim-gpui/pull/6)).
+
 ## [0.8.0] - 2026-10-05
 ### Added
 
