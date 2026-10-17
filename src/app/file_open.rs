@@ -262,6 +262,11 @@ mod tests {
             ["-u", "NONE", "-i", "NONE", "-n"].map(std::ffi::OsString::from),
         )
         .unwrap();
+        assert!(
+            nvim.protocol().is_some(),
+            "Neovim RPC protocol handshake did not complete during spawn (startup_theme_received={})",
+            nvim.startup_theme().is_some()
+        );
         let mut session = Session {
             nvim: Some(nvim),
             ..Session::default()
@@ -272,15 +277,45 @@ mod tests {
         assert_eq!(session.pending_file_opens, files);
         let events = session.nvim.as_ref().unwrap().events();
         let deadline = std::time::Instant::now() + STARTUP_READY_TEST_TIMEOUT;
+        let mut saw_api_ready = false;
+        let mut saw_ui_attached = false;
+        let mut received_event_count = 0;
         loop {
-            assert!(
-                std::time::Instant::now() < deadline,
-                "startup was not ready"
-            );
-            if matches!(events.try_recv(), Ok(crate::nvim::NvimEvent::StartupReady)) {
-                break;
+            match events.try_recv() {
+                Ok(crate::nvim::NvimEvent::StartupReady) => break,
+                Ok(crate::nvim::NvimEvent::ApiReady { .. }) => {
+                    saw_api_ready = true;
+                    received_event_count += 1;
+                }
+                Ok(crate::nvim::NvimEvent::UiAttached { .. }) => {
+                    saw_ui_attached = true;
+                    received_event_count += 1;
+                }
+                Ok(crate::nvim::NvimEvent::Error(error)) => panic!(
+                    "Neovim RPC failed before startup was ready (api_ready={saw_api_ready}, ui_attached={saw_ui_attached}): {error}"
+                ),
+                Ok(crate::nvim::NvimEvent::Disconnected { reason }) => panic!(
+                    "Neovim disconnected before startup was ready (api_ready={saw_api_ready}, ui_attached={saw_ui_attached}): {reason:?}"
+                ),
+                Ok(_) => received_event_count += 1,
+                Err(async_channel::TryRecvError::Closed) => {
+                    panic!(
+                        "Neovim event channel closed before startup was ready (api_ready={saw_api_ready}, ui_attached={saw_ui_attached}, event_count={received_event_count})"
+                    );
+                }
+                Err(async_channel::TryRecvError::Empty) => {
+                    if std::time::Instant::now() >= deadline {
+                        let nvim = session.nvim.as_ref().unwrap();
+                        panic!(
+                            "startup was not ready within {:?} (nvim_version={:?}, startup_theme_received={}, api_ready={saw_api_ready}, ui_attached={saw_ui_attached}, event_count={received_event_count})",
+                            STARTUP_READY_TEST_TIMEOUT,
+                            nvim.version(),
+                            nvim.startup_theme().is_some()
+                        );
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
             }
-            std::thread::sleep(std::time::Duration::from_millis(5));
         }
         session.nvim_startup_ready = true;
         let requests = session.take_pending_file_opens();
