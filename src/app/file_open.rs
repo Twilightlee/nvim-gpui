@@ -306,8 +306,39 @@ mod tests {
                 Err(async_channel::TryRecvError::Empty) => {
                     if std::time::Instant::now() >= deadline {
                         let nvim = session.nvim.as_ref().unwrap();
+                        let startup_state = nvim
+                            .protocol()
+                            .ok_or_else(|| "protocol metadata unavailable".to_owned())
+                            .and_then(|protocol| {
+                                nvim.request(
+                                    "nvim_exec_lua",
+                                    rmpv::Value::Array(vec![
+                                        rmpv::Value::from(
+                                            r#"local channel = ...
+local ok, autocmds = pcall(vim.api.nvim_get_autocmds, { group = "nvim_gpui_startup_ready" })
+return {
+    vim_did_enter = vim.v.vim_did_enter,
+    channel = channel,
+    channel_info = vim.api.nvim_get_chan_info(channel),
+    autocmd_query_ok = ok,
+    autocmds = autocmds,
+}"#,
+                                        ),
+                                        rmpv::Value::Array(vec![rmpv::Value::from(
+                                            protocol.channel_id,
+                                        )]),
+                                    ]),
+                                )
+                                .map_err(|error| format!("could not queue startup-state query: {error}"))
+                            })
+                            .and_then(|response| {
+                                response
+                                    .recv_blocking()
+                                    .map_err(|error| format!("startup-state query timed out: {error}"))?
+                                    .map_err(|error| format!("startup-state query failed: {error}"))
+                            });
                         panic!(
-                            "startup was not ready within {:?} (nvim_version={:?}, startup_theme_received={}, api_ready={saw_api_ready}, ui_attached={saw_ui_attached}, event_count={received_event_count})",
+                            "startup was not ready within {:?} (nvim_version={:?}, startup_theme_received={}, api_ready={saw_api_ready}, ui_attached={saw_ui_attached}, event_count={received_event_count}, startup_state={startup_state:?})",
                             STARTUP_READY_TEST_TIMEOUT,
                             nvim.version(),
                             nvim.startup_theme().is_some()
