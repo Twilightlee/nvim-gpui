@@ -50,7 +50,7 @@ jobs:
           TAG: ${{ inputs.tag }}
         run: |
           if ($env:TAG -notmatch '^[A-Za-z0-9._-]+$') {
-            throw "tag must match ^[A-Za-z0-9._-]+$: ${env:TAG}"
+            throw ('tag must match ^[A-Za-z0-9._-]+$: {0}' -f $env:TAG)
           }
 
       - name: Cache Cargo registry and Rime build data
