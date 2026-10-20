@@ -1,0 +1,197 @@
+name: Windows Portable
+
+# Builds a Windows x86_64 portable ZIP and uploads it as a workflow artifact.
+# This workflow is intentionally independent from release.yml: it is always
+# triggered manually, it never creates a GitHub Release, and it does not touch
+# the macOS, Linux, Fedora, or Arch packaging jobs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Label used in the artifact and ZIP file name
+        required: true
+        default: portable
+        type: string
+      include_rime:
+        description: Bundle the Rime runtime (matches the official release layout; much slower)
+        required: false
+        default: false
+        type: boolean
+      run_checks:
+        description: Run cargo fmt --check and clippy before building
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-portable-${{ inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  RUST_TARGET: x86_64-pc-windows-msvc
+
+jobs:
+  windows-portable:
+    name: Windows x86_64 portable ZIP
+    runs-on: windows-2022
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Validate artifact label
+        shell: pwsh
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if ($env:TAG -notmatch '^[A-Za-z0-9._-]+$') {
+            throw "tag must match ^[A-Za-z0-9._-]+$: ${env:TAG}"
+          }
+
+      - name: Cache Cargo registry and Rime build data
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            .cache/rime-build/windows-x86_64
+          key: windows-portable-${{ hashFiles('Cargo.lock', 'packaging/rime/runtime.toml', 'packaging/rime/starter-data.toml') }}
+          restore-keys: |
+            windows-portable-
+
+      - name: Install Rust toolchain
+        shell: pwsh
+        env:
+          RUN_CHECKS: ${{ inputs.run_checks }}
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          if ($env:RUN_CHECKS -eq 'true') {
+            rustup component add clippy rustfmt
+          }
+          $cargoBin = Join-Path $env:USERPROFILE '.cargo\bin'
+          $cargoBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & (Join-Path $cargoBin 'cargo.exe') --version
+
+      - name: Run formatting and lint checks
+        if: inputs.run_checks
+        shell: pwsh
+        run: |
+          cargo fmt --all -- --check
+          if ($LASTEXITCODE -ne 0) {
+            throw "cargo fmt --check failed with exit code $LASTEXITCODE"
+          }
+          cargo clippy --locked --all-targets --all-features -- -D warnings
+          if ($LASTEXITCODE -ne 0) {
+            throw "cargo clippy failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Build release binaries
+        if: ${{ !inputs.include_rime }}
+        shell: pwsh
+        run: |
+          cargo build --locked --release --bins --target $env:RUST_TARGET
+          if ($LASTEXITCODE -ne 0) {
+            throw "cargo build failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Install just
+        if: inputs.include_rime
+        shell: pwsh
+        run: |
+          cargo install just --locked
+          if ($LASTEXITCODE -ne 0) {
+            throw "cargo install just failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Build Rime runtime and Windows bundle
+        if: inputs.include_rime
+        shell: pwsh
+        env:
+          NVIM_GPUI_RIME_WINDOWS_ARCH: x64
+          NVIM_GPUI_RIME_BUILD_DIR: ${{ github.workspace }}\.cache\rime-build\windows-x86_64
+          NVIM_GPUI_RIME_RUNTIME_OUTPUT: ${{ github.workspace }}\.cache\artifacts\windows-x86_64\rime-runtime
+          NVIM_GPUI_WINDOWS_BUNDLE_OUTPUT: ${{ github.workspace }}\.cache\windows\nvim-gpui
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:NVIM_GPUI_RIME_BUILD_DIR | Out-Null
+          just rime-runtime-windows
+          if ($LASTEXITCODE -ne 0) {
+            throw "just rime-runtime-windows failed with exit code $LASTEXITCODE"
+          }
+          just bundle-windows
+          if ($LASTEXITCODE -ne 0) {
+            throw "just bundle-windows failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Assemble portable bundle
+        shell: pwsh
+        env:
+          INCLUDE_RIME: ${{ inputs.include_rime }}
+        run: |
+          $root = $env:GITHUB_WORKSPACE
+          $stage = Join-Path $root '.cache\portable'
+          if (Test-Path -LiteralPath $stage) {
+            Remove-Item -LiteralPath $stage -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          if ($env:INCLUDE_RIME -eq 'true') {
+            # bundle-windows produces the full release layout: nvim-gpui.exe,
+            # gpvim.exe, and the rime/ runtime directory.
+            Copy-Item -Path (Join-Path $root '.cache\windows\nvim-gpui\*') -Destination $stage -Recurse -Force
+          } else {
+            # Minimal portable layout: the executables only. Assets and fonts are
+            # embedded in the binaries, and users provide their own Neovim.
+            $release = Join-Path $root "target\$env:RUST_TARGET\release"
+            foreach ($name in @('nvim-gpui.exe', 'gpvim.exe')) {
+              $source = Join-Path $release $name
+              if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+                throw "release executable does not exist: $source"
+              }
+              Copy-Item -LiteralPath $source -Destination (Join-Path $stage $name) -Force
+            }
+          }
+
+          if (-not (Test-Path -LiteralPath (Join-Path $stage 'nvim-gpui.exe') -PathType Leaf)) {
+            throw "portable bundle is missing nvim-gpui.exe"
+          }
+
+      - name: Smoke-test portable bundle
+        shell: pwsh
+        run: |
+          $stage = Join-Path $env:GITHUB_WORKSPACE '.cache\portable'
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-windows.ps1 -Bundle $stage
+          if ($LASTEXITCODE -ne 0) {
+            throw "portable smoke test failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Create portable ZIP
+        shell: pwsh
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          $stage = Join-Path $env:GITHUB_WORKSPACE '.cache\portable'
+          $zip = Join-Path $env:GITHUB_WORKSPACE "nvim-gpui-portable-$env:TAG-windows-x86_64.zip"
+          if (Test-Path -LiteralPath $zip) {
+            Remove-Item -LiteralPath $zip -Force
+          }
+          # Compress the directory contents so the ZIP root contains
+          # nvim-gpui.exe rather than an extra folder level.
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
+          if (-not (Test-Path -LiteralPath $zip -PathType Leaf)) {
+            throw "portable ZIP was not created: $zip"
+          }
+          Write-Output "created $zip"
+
+      - name: Upload portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: nvim-gpui-portable-${{ inputs.tag }}-windows-x86_64
+          path: nvim-gpui-portable-${{ inputs.tag }}-windows-x86_64.zip
+          if-no-files-found: error
+          retention-days: 30
